@@ -7,6 +7,8 @@ import os
 cimport numpy as np
 cimport cython
 
+from libc.stdlib cimport rand, RAND_MAX
+
 from cython.parallel cimport prange
 
 ctypedef np.int64_t INDEX_t
@@ -16,98 +18,43 @@ cdef:
    VALUE = np.uint16
    int NFIVE = 2598960, NSEVEN = 133784560
 
-_hand5 = _score5 = _hand7 = _score7 = None
 
-def _load5():
-    global _hand5, _score5
-    if _hand5 is None:
-        data_pth = '/Users/beaumont/knish/knish/hand5.npz'
-        data = np.load(data_pth)
-        _hand5, _score5 = data['key'], data['val']
+cpdef int score5(long c1, long c2, long c3, long c4, long c5) nogil:
+    """
+    Compute a score from 5 cards
 
-    return _hand5, _score5
+    Parameters
+    ----------
+    c1, c2, c3, c4, c5 : ints
+       The five cards, expressed in bitmask form
 
+    Returns
+    -------
+    score : int
+       A 32 bit integer, whose value sorts several hands by increasing strength
+    """
 
-def _load7():
-    global _hand7, _score7
-    if _hand7 is None:
-        data_pth = '/Users/beaumont/knish/knish/hand7.npz'
-        data = np.load(data_pth)
-        _hand7, _score7 = data['key'], data['val']
-
-    return _hand7, _score7
-
-
-@cython.boundscheck(False)
-@cython.wraparound(False)
-cdef int bsearch(INDEX_t v, INDEX_t[:] a, int n) nogil:
-    cdef int i = 0, lo=0, hi=n - 1
-
-    if a[hi] == v:
-        return hi
-
-    # a[lo] <= v < a[hi]
-    while(hi - lo) > 1:
-        mid = (hi + lo) >> 1
-        if a[mid] <= v:
-            lo = mid
-        else:
-            hi = mid
-
-    return lo
-
-@cython.boundscheck(False)
-@cython.wraparound(False)
-cdef _score(INDEX_t[:] hands, VALUE_t[:] out,
-            INDEX_t[:] all_hands, VALUE_t[:] all_scores):
-
-    cdef:
-        int n = all_hands.size, nhand = hands.size, i=0
-
-    for i in prange(nhand, nogil=True):
-        out[i] = all_scores[bsearch(hands[i], all_hands, n)]
-
-
-def _score5_lookup(INDEX_t[:] hands,
-           VALUE_t[:] out):
-
-    _hand5, _score5 = _load5()
-
-    cdef:
-        INDEX_t[:] keys = _hand5
-        VALUE_t[:] scores = _score5
-
-    _score(hands, out, keys, scores)
-    return out
-
-
-cdef int score(long c1, long c2, long c3, long c4, long c5):
     # each card is a bitmask with two bits set. One for the suit, one for the rank
     # [00C 00H 00S 00D 00A 00K 00Q ... 002]
     # the extra zeros allow us to aggregate ranks and suits for up to 7 cards by adding
     cdef:
-        int ones=0, twos=0, threes=0, fours=0, i, v
-        int is_flush, is_straight, is_twopair
+        int ones=0, twos=0, threes=0, fours=0
+        int i, v
+        int is_flush = 0, is_straight=0, is_twopair=0
         long h = (c1 + c2 + c3 + c4 + c5), m
         long rankset = (c1 | c2 | c3 | c4 | c5) & 549755813887LL  # chop of suit buits
 
     # populate ones/twos/threes/fours
     # each stores a bit mask of which card ranks appear 1/2/3/4 times
-    for i in range(14):
+    for i in range(13):
         v = (h & 7)  # number of cards of rank i
         h >>= 3
         m = 1 << i   # bitmask for rank i
-        if v == 0:
-            continue
-        elif v == 1:
-            ones |= m
-        elif v == 2:
-            is_twopair = twos != 0
-            twos |= m
-        elif v == 3:
-            threes |= m
-        else: # v == 4
-            fours |= m
+        is_twopair |= (v == 2) and (twos != 0)
+        ones |= m * (v == 1)
+        twos |= m * (v == 2)
+        threes |= m * (v == 3)
+        fours |= m * (v == 4)
 
     # check for flush, by looking for a suit with 5 cards
     for i in range(4):
@@ -116,27 +63,37 @@ cdef int score(long c1, long c2, long c3, long c4, long c5):
         is_flush |= (v == 5)
 
     # check for a stright
-    is_straight = ((rankset == 4681) or
-                   (rankset == 37448) or
-                   (rankset == 299584) or
-                   (rankset == 2396672) or
-                   (rankset == 19173376) or
-                   (rankset == 153387008LL) or
-                   (rankset == 1227096064LL) or
-                   (rankset == 9816768512LL) or
-                   (rankset == 78534148096LL) or
-                   (rankset == 68719477321LL))
+    if rankset == 4681:
+        is_straight = 1 << 4
+    elif rankset == 37448:
+        is_straight = 1 << 5
+    elif rankset == 299584:
+        is_straight = 1 << 6
+    elif rankset == 2396672:
+        is_straight = 1 << 7
+    elif rankset == 19173376:
+        is_straight = 1 << 8
+    elif rankset == 153387008LL:
+        is_straight = 1 << 9
+    elif rankset == 1227096064LL:
+        is_straight = 1 << 10
+    elif rankset == 9816768512LL:
+        is_straight = 1 << 11
+    elif rankset == 78534148096LL:
+        is_straight = 1 << 12
+    elif rankset == 68719477321LL:
+        is_straight = 1 << 3
 
-    if is_flush & is_straight:  # straight flush
-        return (8 << 26) | ones
+    if is_flush & (is_straight > 0):  # straight flush
+        return (8 << 26) | is_straight
     if fours:                   # four of a kind
-        return (7 << 26) | fours
+        return (7 << 26) | fours << 13 | ones
     if (threes != 0) & (twos != 0): # full house
         return (6 << 26) | (threes << 13) | twos
-    if is_flush: # flush
+    if is_flush:
         return (5 << 26) | ones
-    if is_straight: #straight
-        return (4 << 26) | ones
+    if is_straight:
+        return (4 << 26) | is_straight
     if threes: # three of a kind
         return (3 << 26) | threes << 13 | ones
     if is_twopair: # two pair
@@ -146,131 +103,213 @@ cdef int score(long c1, long c2, long c3, long c4, long c5):
 
     return ones
 
-
-cdef long convert(int c):
-    #XXX doesn't deal with aces right
+cdef int highest(int mask, int n) nogil:
     cdef:
-        int suit = (c % 52) % 14
-        int rank = (c % 52) / 14
-    return 1L << (3 * rank) + (1L << (3 * suit + 39))
+        int i, j=0
+    for i in range(13, -1, -1):
+        j += ((mask >> i) & 1)
+        if j == n:
+            return (mask >> i) << i
 
-def test():
+cdef int lowest(int mask) nogil:
     cdef:
-        long c1, c2, c3, c4, c5
-        int i0, i1, i2, i3, i4
-        int v
+        int i
+    for i in range(13):
+        if mask & (1 << i):
+            return 1 << i
 
-    t0 = time()
-    for i0 in range(52):
-        c1 = convert(i0)
-        for i1 in range(i0+1, 52):
-            c2 = convert(i1)
-            for i2 in range(i1+1, 52):
-                c3 = convert(i2)
-                for i3 in range(i2+1, 52):
-                    c4 = convert(i3)
-                    for i4 in range(i3+1, 52):
-                        c5 = convert(i4)
-                        v = score(c1, c2, c3, c4, c5)
-    print time() - t0, v
-
-
-def score7(INDEX_t[:] hands,
-           out=None):
-
-    _hand7, _score7 = _load7()
-
-    if out is None:
-        out = np.zeros(hands.size, dtype=VALUE)
-
+cdef int flush(long c1, long c2, long c3, long c4, long c5, long c6, long c7, int suit) nogil:
     cdef:
-        INDEX_t[:] keys = _hand7
-        VALUE_t[:] scores = _score7
-        VALUE_t[:] _out = out
+        int i, v
+        int is_straight=0
+        long rankset, ones=0, h
+        long *straights = [68719477321LL, 4681, 37448, 299584, 2396672, 19173376, 153387008LL, 1227096064LL, 9816768512LL, 78534148096LL]
+        long s = 1L << (3 * suit + 39)
 
-    _score(hands, _out, keys, scores)
-    return out
+    c1 *= ((c1 & s) > 0)
+    c2 *= ((c2 & s) > 0)
+    c3 *= ((c3 & s) > 0)
+    c4 *= ((c4 & s) > 0)
+    c5 *= ((c5 & s) > 0)
+    c6 *= ((c6 & s) > 0)
+    c7 *= ((c7 & s) > 0)
+
+    h = (c1 + c2 + c3 + c4 + c5 + c6 + c7)
+    rankset = (c1 | c2 | c3 | c4 | c5 | c6 | c7)
+
+    for i in range(13):
+        v = (h & 7)  # number of cards of rank i
+        h >>= 3
+        ones |= (v == 1) << i
+
+    # straight flush
+    for i in range(9, -1, -1):
+        if ((rankset & straights[i]) == straights[i]):
+            return 8 << 26 | (1 << (i + 3))
+    return 5 << 26 | highest(ones, 5)
+
 
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cdef VALUE_t _score7_from_5(INDEX_t c1, INDEX_t c2, INDEX_t c3,
-                     INDEX_t c4, INDEX_t c5, INDEX_t c6, INDEX_t c7,
-                     INDEX_t[:] hand5,
-                     VALUE_t[:] score5,
-                     int n) nogil:
+cpdef int score7(long c1, long c2, long c3, long c4, long c5, long c6, long c7) nogil:
+    # each card is a bitmask with two bits set. One for the suit, one for the rank
+    # [00C 00H 00S 00D 00A 00K 00Q ... 002]
+    # the extra zeros allow us to aggregate ranks and suits for up to 7 cards by adding
+    cdef:
+        int ones = 0, twos = 0, threes = 0, fours = 0, notfours = 0
+        int i, v
+        int is_straight=0, is_twopair=0, is_threepair=0, is_twotrips=0
+        long h = (c1 + c2 + c3 + c4 + c5 + c6 + c7)
+        long h2 = h >> 39  # suits
+        long rankset = (c1 | c2 | c3 | c4 | c5 | c6 | c7)
+        long *straights = [68719477321LL, 4681, 37448, 299584, 2396672, 19173376, 153387008LL, 1227096064LL, 9816768512LL, 78534148096LL]
+        int straight_val = 0
+
+    # check for flush, by looking for a suit with >=5 cards
+    for i in range(4):
+        v = (h2 & 7)
+        h2 >>= 3
+        if v >= 5:
+            return flush(c1, c2, c3, c4, c5, c6, c7, i)
+
+    # each stores a bit mask of which card ranks appear 1/2/3/4 times
+    for i in range(13):
+        v = (h & 7)  # number of cards of rank i
+        h >>= 3
+        is_threepair |= (v == 2) & is_twopair
+        is_twotrips |= (v == 3) & (threes != 0)
+        is_twopair |= (v == 2) & (twos != 0)
+        ones |= (v == 1)  << i
+        twos |= (v == 2) << i
+        threes |= (v == 3) << i
+        fours |= (v == 4) << i
+        notfours |= ((v != 4) & (v > 0))<< i
+
+    for i in range(10):
+        if ((rankset & straights[i]) == straights[i]):
+            is_straight = 1
+            straight_val = 1 << (i + 3)
+
+    # quads
+    if fours:
+        return (7 << 26) | (fours << 13) | highest(notfours, 1)
+
+    # FH
+    if (threes != 0) & (twos != 0): # 3 and 2
+        return (6 << 26) | (threes << 13) | highest(twos, 1)
+    if is_twotrips:
+        return (6 << 26) | (highest(threes, 1) << 13) | lowest(threes)
+
+    # straight
+    if is_straight:
+        return (4 << 26) | straight_val
+
+    # 3kind
+    if threes:
+        return (3 << 26) | threes << 13 | highest(ones, 2)
+
+    # 2pair
+    if is_threepair:
+        return (2 << 26) | (highest(twos, 2) << 13) | highest(lowest(twos) | ones, 1)
+
+    if is_twopair:
+        return (2 << 26) | twos << 13 | highest(ones, 1)
+
+    if twos: # pair
+        return (1 << 26) | twos << 13 | highest(ones, 3)
+
+    return highest(ones, 5)
+
+cpdef long splitmask(int c) nogil:
+    cdef:
+        int suit = c / 13
+        int rank = c % 13
+    return (1L << (3 * rank)) + (1L << (3 * suit + 39))
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def allfive():
+    result = np.zeros(2598960, dtype=np.int32)
 
     cdef:
-        VALUE_t result = 0, tmp = 0
-        int i = 0
+        long c1, c2, c3, c4, c5
+        int i0, i1, i2, i3, i4, k=0
+        np.int32_t[:] _out = result
+        int v
 
-        INDEX_t *hands = [
-                          c1 | c2 | c3 | c4 | c5,
-                          c1 | c2 | c3 | c4 | c6,
-                          c1 | c2 | c3 | c4 | c7,
-                          c1 | c2 | c3 | c5 | c6,
-                          c1 | c2 | c3 | c5 | c7,
-                          c1 | c2 | c3 | c6 | c7,
-                          c1 | c2 | c4 | c5 | c6,
-                          c1 | c2 | c4 | c5 | c7,
-                          c1 | c2 | c4 | c6 | c7,
-                          c1 | c2 | c5 | c6 | c7,
-                          c1 | c3 | c4 | c5 | c6,
-                          c1 | c3 | c4 | c5 | c7,
-                          c1 | c3 | c4 | c6 | c7,
-                          c1 | c3 | c5 | c6 | c7,
-                          c1 | c4 | c5 | c6 | c7,
-                          c2 | c3 | c4 | c5 | c6,
-                          c2 | c3 | c4 | c5 | c7,
-                          c2 | c3 | c4 | c6 | c7,
-                          c2 | c3 | c5 | c6 | c7,
-                          c2 | c4 | c5 | c6 | c7,
-                          c3 | c4 | c5 | c6 | c7
-                          ]
+    for i0 in range(52):
+        c1 = splitmask(i0)
+        for i1 in range(i0+1, 52):
+            c2 = splitmask(i1)
+            for i2 in range(i1+1, 52):
+                c3 = splitmask(i2)
+                for i3 in range(i2+1, 52):
+                    c4 = splitmask(i3)
+                    for i4 in range(i3+1, 52):
+                        c5 = splitmask(i4)
+                        _out[k] = score5(c1, c2, c3, c4, c5)
+                        k += 1
+    return result
 
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cpdef int score7_from5(long c1, long c2, long c3, long c4, long c5, long c6, long c7) nogil:
+    cdef:
+        long tmp, result = 0
+        int i, k
+        long *p = [
+                   c1, c2, c3, c4, c5,
+                   c1, c2, c3, c4, c6,
+                   c1, c2, c3, c4, c7,
+                   c1, c2, c3, c5, c6,
+                   c1, c2, c3, c5, c7,
+                   c1, c2, c3, c6, c7,
+                   c1, c2, c4, c5, c6,
+                   c1, c2, c4, c5, c7,
+                   c1, c2, c4, c6, c7,
+                   c1, c2, c5, c6, c7,
+                   c1, c3, c4, c5, c6,
+                   c1, c3, c4, c5, c7,
+                   c1, c3, c4, c6, c7,
+                   c1, c3, c5, c6, c7,
+                   c1, c4, c5, c6, c7,
+                   c2, c3, c4, c5, c6,
+                   c2, c3, c4, c5, c7,
+                   c2, c3, c4, c6, c7,
+                   c2, c3, c5, c6, c7,
+                   c2, c4, c5, c6, c7,
+                   c3, c4, c5, c6, c7,
+                 ]
     for i in range(21):
-        tmp = score5[bsearch(hands[i], hand5, n)]
+        k = i * 5
+        tmp = score5(p[k], p[k + 1], p[k + 2], p[k + 3], p[k + 4])
         if tmp > result:
             result = tmp
 
     return result
 
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def all7():
-    _hand5, _score5 = _load5()
+def simulate_headsup(long m1, long m2, long o1, long o2,
+                     long[:] deck, int ntrial):
 
     cdef:
-        int NHAND = 133784560, i1, i2, i3, i4, i5, i6, i7, i=0
-        long c1, c2, c3, c4, c5, c6, c7
-        VALUE_t[:] scores = np.zeros(NHAND, dtype=VALUE)
-        INDEX_t[:] hands = np.zeros(NHAND, dtype=INDEX)
+        int i, j, k, s1, s2
+        long *com = [0, 0, 0, 0, 0]
+        float nwin=0, nlose=0, delta = 1.0 / ntrial
 
-        INDEX_t[:] hand_db = _hand5
-        VALUE_t[:] score_db = _score5
-        int n = hand_db.size
-
-    for i1 in range(52):
-        print i1
-        c1 = 1L << i1
-        for i2 in range(i1 + 1, 52):
-            c2 = 1L << i2
-            for i3 in range(i2 + 1, 52):
-                c3 = 1L << i3
-                for i4 in range(i3 + 1, 52):
-                    c4 = 1L << i4
-                    for i5 in range(i4 + 1, 52):
-                        c5 = 1L << i5
-                        for i6 in range(i5 + 1, 52):
-                            c6 = 1L << i6
-                            for i7 in range(i6 + 1, 52):
-                                c7 = 1L << i7
-                                hands[i] = (c1 | c2 | c3 | c4 | c5 | c6 | c7)
-                                scores[i] = _score7_from_5(c1, c2, c3, c4, c5, c6, c7, hand_db, score_db, n)
-                                i += 1
-
-    return hands, scores
-
-
-cdef all_deals(INDEX_t[:] deck, int n):
-    deck = np.sort(deck)
+    for i in prange(ntrial, nogil=True):
+        for j in range(5):
+            k = <int>(rand()/(RAND_MAX / 48.0))
+            com[j] = deck[k]
+        s1 = score7(com[0], com[1], com[2], com[3], com[4], m1, m2)
+        s2 = score7(com[0], com[1], com[2], com[3], com[4], o1, o2)
+        if s1 > s2:
+            nwin += delta
+        if s1 < s2:
+            nlose += delta
+    return nwin, nlose
