@@ -103,7 +103,7 @@ cpdef int score5(long c1, long c2, long c3, long c4, long c5) nogil:
 
     return ones
 
-cdef int highest(int mask, int n) nogil:
+cdef inline int highest(int mask, int n) nogil:
     cdef:
         int i, j=0
     for i in range(13, -1, -1):
@@ -111,14 +111,14 @@ cdef int highest(int mask, int n) nogil:
         if j == n:
             return (mask >> i) << i
 
-cdef int lowest(int mask) nogil:
+cdef inline int lowest(int mask) nogil:
     cdef:
         int i
     for i in range(13):
         if mask & (1 << i):
             return 1 << i
 
-cdef int flush(long c1, long c2, long c3, long c4, long c5, long c6, long c7, int suit) nogil:
+cdef inline int flush(long c1, long c2, long c3, long c4, long c5, long c6, long c7, int suit) nogil:
     cdef:
         int i, v
         int is_straight=0
@@ -149,6 +149,29 @@ cdef int flush(long c1, long c2, long c3, long c4, long c5, long c6, long c7, in
     return 5 << 26 | highest(ones, 5)
 
 
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cdef int unique(long c1, long c2, long c3, long c4, long c5, long c6, long c7, long h, long rankset) nogil:
+
+    cdef:
+        long *straights = [68719477321LL, 4681, 37448, 299584, 2396672, 19173376, 153387008LL, 1227096064LL, 9816768512LL, 78534148096LL]
+        int i, ones = 0
+
+    # straight
+    for i in range(9, -1, -1):
+        if ((rankset & straights[i]) == straights[i]):
+            return (4 << 26) | (1 << (i + 3))
+
+
+    # each stores a bit mask of which card ranks appear 1/2/3/4 times
+    for i in range(13):
+        v = (h & 7)  # number of cards of rank i
+        h >>= 3
+        ones |= (v == 1)  << i
+
+    return highest(ones, 5)
+
+
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -158,13 +181,13 @@ cpdef int score7(long c1, long c2, long c3, long c4, long c5, long c6, long c7) 
     # the extra zeros allow us to aggregate ranks and suits for up to 7 cards by adding
     cdef:
         int ones = 0, twos = 0, threes = 0, fours = 0, notfours = 0
-        int i, v
-        int is_straight=0, is_twopair=0, is_threepair=0, is_twotrips=0
+        int i, v, m
+        int is_twopair=0, is_threepair=0, is_twotrips=0
         long h = (c1 + c2 + c3 + c4 + c5 + c6 + c7)
         long h2 = h >> 39  # suits
         long rankset = (c1 | c2 | c3 | c4 | c5 | c6 | c7)
         long *straights = [68719477321LL, 4681, 37448, 299584, 2396672, 19173376, 153387008LL, 1227096064LL, 9816768512LL, 78534148096LL]
-        int straight_val = 0
+
 
     # check for flush, by looking for a suit with >=5 cards
     for i in range(4):
@@ -173,23 +196,23 @@ cpdef int score7(long c1, long c2, long c3, long c4, long c5, long c6, long c7) 
         if v >= 5:
             return flush(c1, c2, c3, c4, c5, c6, c7, i)
 
+    # 7 unique cards
+    if (rankset & 549755813887LL) == (h & 549755813887LL):
+        return unique(c1, c2, c3, c4, c5, c6, c7, h, rankset)
+
     # each stores a bit mask of which card ranks appear 1/2/3/4 times
     for i in range(13):
         v = (h & 7)  # number of cards of rank i
         h >>= 3
+        m = 1 << i
         is_threepair |= (v == 2) & is_twopair
         is_twotrips |= (v == 3) & (threes != 0)
         is_twopair |= (v == 2) & (twos != 0)
-        ones |= (v == 1)  << i
-        twos |= (v == 2) << i
-        threes |= (v == 3) << i
-        fours |= (v == 4) << i
-        notfours |= ((v != 4) & (v > 0))<< i
-
-    for i in range(10):
-        if ((rankset & straights[i]) == straights[i]):
-            is_straight = 1
-            straight_val = 1 << (i + 3)
+        ones |= (v == 1) * m
+        twos |= (v == 2) * m
+        threes |= (v == 3) * m
+        fours |= (v == 4) * m
+        notfours |= ((v != 4) & (v > 0)) * m
 
     # quads
     if fours:
@@ -202,8 +225,9 @@ cpdef int score7(long c1, long c2, long c3, long c4, long c5, long c6, long c7) 
         return (6 << 26) | (highest(threes, 1) << 13) | lowest(threes)
 
     # straight
-    if is_straight:
-        return (4 << 26) | straight_val
+    for i in range(9, -1, -1):
+        if ((rankset & straights[i]) == straights[i]):
+            return (4 << 26) | (1 << (i + 3))
 
     # 3kind
     if threes:
@@ -294,6 +318,7 @@ cpdef int score7_from5(long c1, long c2, long c3, long c4, long c5, long c6, lon
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 def simulate_headsup(long m1, long m2, long o1, long o2,
                      long[:] deck, int ntrial):
 
