@@ -26,10 +26,6 @@ class Card(object):
         return 1 << self._index
 
     @property
-    def splitmask(self):
-        return _lib.splitmask(self.index)
-
-    @property
     def rank(self):
         return self._index % 13
 
@@ -63,8 +59,8 @@ class Hand(object):
     @property
     def rank(self):
         if len(self._cards) == 5:
-            return _lib.score5(*(c.splitmask for c in self._cards))
-        return _lib.score7(*(c.splitmask for c in self._cards))
+            return _lib.score5(*(c.bitmask for c in self._cards))
+        return _lib.score7(*(c.bitmask for c in self._cards))
 
     @property
     def name(self):
