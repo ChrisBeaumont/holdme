@@ -1,7 +1,7 @@
 from itertools import combinations
 
-from ..core import Card, Hand
-from .._lib import allfive, enumerate_headsup
+from ..core import Card, Hand, headsup
+from .._lib import allfive, enumerate_headsup, allseven
 
 
 class TestCard(object):
@@ -105,22 +105,49 @@ def test_7_hands():
 
 
 def test_allfive():
-    f = allfive()
-    print f.min(), f.max()
-    scores = allfive() >> 26
-    sums = [(scores == i).sum() for i in range(9)]
+    sums = allfive().tolist()
     print sums
     assert sums == [1302540, 1098240, 123552,
                     54912, 10200, 5108, 3744, 624, 40]
 
 
+def test_allseven():
+    sums = allseven().tolist()
+    print sums
+    assert sums == [23294460, 58627800, 31433400,
+                    6461620, 6180020, 4047644, 3473184, 224848, 41584]
+
+
 def test_headsup():
-    import numpy as np
 
-    m1, m2, o1, o2 = [1 << i for i in range(4)]
+    def check(h1, h2, expected_pwin, expected_plose):
+        pwin, plose = headsup(Hand(h1), Hand(h2))
+        print pwin, plose
+        assert abs(pwin - expected_pwin) < 1e-3
+        assert abs(plose - expected_plose) < 1e-3
 
-    from time import time
-    t0 = time()
-    print enumerate_headsup(m1, m2, o1, o2)
-    print time() - t0
-    assert False
+    yield check, 'AH AS', 'QC QD', .8069, .1896
+    yield check, 'KC KD', '6H 6S', .7970, .2003
+    yield check, 'TD JD', '6H 2S', .6941, .2942
+
+
+def test_headsup_flop():
+
+    def check(h1, h2, com, expected_pwin, expected_plose):
+        pwin, plose = headsup(Hand(h1), Hand(h2), Hand(com))
+        print pwin, plose
+        assert abs(pwin - expected_pwin) < 1e-3
+        assert abs(plose - expected_plose) < 1e-3
+
+    yield check, 'AH AS', 'QC QD', 'QH QS 2D', .0010, .9990
+
+
+def test_headsup_turn():
+
+    def check(h1, h2, com, expected_pwin, expected_plose):
+        pwin, plose = headsup(Hand(h1), Hand(h2), Hand(com))
+        print pwin, plose
+        assert abs(pwin - expected_pwin) < 1e-3
+        assert abs(plose - expected_plose) < 1e-3
+
+    yield check, 'AH AS', 'QC QD', 'QH QS 2D AC', .0227, .9773
