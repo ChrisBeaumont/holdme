@@ -13,9 +13,9 @@ h2 = Hand('KS TH')
 pwin, plose = headsup(h1, h2)
 print pwin, plose  # 0.853392855474 0.143615269251
 
-flop = Hand('KS KH TD')
+flop = Hand('KC KH TD')
 pwin, plose = headsup(h1, h2, flop)
-print pwin, plose # 0.918181818182 0.0818181818182
+print pwin, plose # 0.0858585858586 0.914141414141
 
 community = flop + Card('AH') + Card('AS')
 pwin, plose = headsup(h1, h2, community)
