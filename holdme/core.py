@@ -1,11 +1,7 @@
-from collections import namedtuple, Counter
-from itertools import combinations
-
-import numpy as np
-
 from . import _lib
 
-HIGH, PAIR, TWOPAIR, THREE, STRAIGHT, FLUSH, FULLHOUSE, FOUR, STRAIGHTFLUSH = range(9)
+(HIGH, PAIR, TWOPAIR, THREE, STRAIGHT,
+ FLUSH, FULLHOUSE, FOUR, STRAIGHTFLUSH) = range(9)
 
 RANKS = '23456789TJQKA'
 SUITS = 'CHSD'
@@ -14,23 +10,33 @@ SUITS = 'CHSD'
 class Card(object):
 
     def __init__(self, name):
+        """
+        Parameters
+        ----------
+        name : str
+           A string like 'Ac', 'Td', or '2s', naming the rank and suit
+        """
         r, s = name.upper()
         self._index = RANKS.index(r) + SUITS.index(s) * 13
 
     @property
     def index(self):
+        # A number between [0-51] identifying the card
         return self._index
 
     @property
     def bitmask(self):
+        # A bitmask of the index
         return 1 << self._index
 
     @property
     def rank(self):
+        # The rank of the card, as a number [0-12]. A=12
         return self._index % 13
 
     @property
     def suit(self):
+        # The suit of the card, as a number [0, 3]
         return self._index // 13
 
     def __str__(self):
@@ -41,10 +47,16 @@ class Card(object):
 
     @classmethod
     def from_index(cls, i):
+        """
+        Make a new card from an index [0-51]
+        """
         return cls(RANKS[i % 13] + SUITS[i // 13])
 
     @classmethod
     def from_bitmask(cls, b):
+        """
+        Make a new card from a bitmask.
+        """
         for i in range(52):
             if b & 1:
                 return cls.from_index(i)
@@ -54,20 +66,52 @@ class Card(object):
 class Hand(object):
 
     def __init__(self, name=''):
+        """
+        Parameters
+        ----------
+        name : str or list of cards
+
+            If str, a space-delimited sequence
+            of card names (see Card class)
+
+        Examples
+        --------
+
+        hand = Hand('2c 3d 4s Tc Qd')
+        hand = Hand([Card('2C'), Card('4D')])
+        """
         self._cards = name
         if isinstance(self._cards, str):
             self._cards = [Card(n) for n in name.split()]
 
     @property
     def rank(self):
+        """
+        If hand has 5 or 7 cards, the strength of the hand.
+
+        Returns
+        -------
+        strength : int
+           A number. Sorting hands by increasing rank arranges
+           them from weakest to strongest
+
+        Note
+        ----
+        This method does not check that a given hand is valid (ie contains
+        no duplicate cards)
+        """
         if len(self._cards) == 5:
             return _lib.score5(*(c.bitmask for c in self._cards))
         elif len(self._cards) == 7:
             return _lib.score7(*(c.bitmask for c in self._cards))
-        raise ValueError("Can only compute hand strength for 5 or 7 card hands")
+        raise ValueError("Can only compute hand strength for "
+                         "5 or 7 card hands")
 
     @property
     def name(self):
+        """
+        The name of a hand, like "Full House (3s and 5s)"
+        """
         return hand_name(self.rank)
 
     @property
@@ -81,6 +125,10 @@ class Hand(object):
         return "Hand('%s')" % (' '.join(str(c) for c in self._cards))
 
     def __add__(self, other):
+        """
+        Adding Hands to cards or hands produces a new hand with the
+        union of cards
+        """
         if isinstance(other, Hand):
             return Hand(self.cards + other.cards)
         elif isinstance(other, Card):
@@ -163,8 +211,10 @@ def headsup(h1, h2, community=None):
     elif len(community) == 4:
         result = _lib.enumerate_headsup_turn(*args)
     else:
-        s1 = _lib.score7(*[c.bitmask for h in [h1, community] for c in h._cards])
-        s2 = _lib.score7(*[c.bitmask for h in [h2, community] for c in h._cards])
+        s1 = _lib.score7(*[c.bitmask for h in [h1, community]
+                         for c in h._cards])
+        s2 = _lib.score7(*[c.bitmask for h in [h2, community]
+                         for c in h._cards])
         return float(s1 > s2), float(s1 < s2)
 
     return result['pwin'], result['plose']

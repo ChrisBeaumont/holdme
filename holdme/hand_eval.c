@@ -7,6 +7,8 @@ int score5(card_t c1, card_t c2, card_t c3, card_t c4, card_t c5) {
     int s;
 
     card_t hand = c1 | c2 | c3 | c4 | c5;
+
+    // build rankmask for each suit
     int hearts = hand & 8191;
     int clubs = (hand >> 13) & 8191;
     int diamonds = (hand >> 26) & 8191;

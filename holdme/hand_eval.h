@@ -1,3 +1,5 @@
+// Each card is represented as a bitmask with a single bit set
+// 2c = 1 << 0 ... Ad = 1 << 51
 typedef long card_t;
 
 int score7(card_t c1, card_t c2, card_t c3, card_t c4, card_t c5, card_t c6, card_t c7);
