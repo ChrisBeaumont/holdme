@@ -44,7 +44,7 @@ The hand category stores the hand "type"
 ```
 The two subcategories differentiate between strengths of hands of the same
 type. The data they store depends on the hand type
-
+```
      Highcard: Block B stores the rank of the 5 highest rank cards in the hand
                (where each rank is a 13-bit bitmask, ORed together)
          Pair: Block A stores the rank of the pair. Block B stores the ranks
@@ -60,3 +60,4 @@ type. The data they store depends on the hand type
         Quads: Block A stores the rank of the quad. Block B stores the rank
                of the highest non-quad card
      St Flush: Same as straight
+```
