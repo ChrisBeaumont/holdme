@@ -9,7 +9,7 @@ like these kinds of details:
 
 Internally, we represent cards by bitmasks stored as 64-bit integers.
 Each card has a single bit set:
-
+```
    2C = 1 << 0
    3C = 1 << 1
        ⋮
@@ -19,7 +19,7 @@ Each card has a single bit set:
    2S = 1 << 26
        ⋮
    2D = 1 << 39
-
+```
 This allows us to represent sets of cards by the bitwise OR
 of the individual cards.
 
@@ -36,12 +36,12 @@ Unused | Hand Category (4 bits) | Sub category A (13 bits) | Sub B (13 bits)
 ```
 
 The hand category stores the hand "type"
-
+```
  High card: 0
  Pair: 1
      ⋮
  Straight Flush: 8
-
+```
 The two subcategories differentiate between strengths of hands of the same
 type. The data they store depends on the hand type
 
